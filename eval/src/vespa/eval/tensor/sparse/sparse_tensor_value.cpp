@@ -16,9 +16,7 @@ namespace {
 
 using SubspaceMap = SparseTensorValueIndex::SubspaceMap;
 
-void
-copyMap(SubspaceMap &map, const SubspaceMap &map_in, Stash &stash)
-{
+void copyMap(SubspaceMap &map, const SubspaceMap &map_in, Stash &stash) {
     // copy the exact hashtable structure:
     map = map_in;
     // copy the actual contents of the addresses,
@@ -29,6 +27,15 @@ copyMap(SubspaceMap &map, const SubspaceMap &map_in, Stash &stash)
         SparseTensorAddressRef newRef(oldRef, stash);
         kv.first = newRef;
     }
+}
+
+template<typename T>
+size_t needed_memory_for(const SubspaceMap &map, ConstArrayRef<T> cells) {
+    size_t needs = cells.size() * sizeof(T);
+    for (const auto & kv : map) {
+        needs += kv.first.size();
+    }
+    return needs;
 }
 
 } // namespace <unnamed>
@@ -122,14 +129,14 @@ SparseTensorValue<T>::SparseTensorValue(const eval::ValueType &type_in, const Sp
     : _type(type_in),
       _index(),
       _cells(),
-      _stash(STASH_CHUNK_SIZE)
+      _stash(needed_memory_for(index_in.map, cells_in))
 {
     copyMap(_index.map, index_in.map, _stash);
     _cells = _stash.copy_array<T>(cells_in);
 }
 
 template<typename T>
-SparseTensorValue<T>::SparseTensorValue(eval::ValueType &&type_in, const SparseTensorValueIndex &&index_in, ConstArrayRef<T> &&cells_in, Stash &&stash_in)
+SparseTensorValue<T>::SparseTensorValue(eval::ValueType &&type_in, SparseTensorValueIndex &&index_in, ConstArrayRef<T> &&cells_in, Stash &&stash_in)
     : _type(std::move(type_in)),
       _index(std::move(index_in)),
       _cells(std::move(cells_in)),

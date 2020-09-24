@@ -12,4 +12,5 @@ vespa_add_library(eval_tensor_sparse OBJECT
     sparse_tensor_modify.cpp
     sparse_tensor_remove.cpp
     sparse_tensor_value.cpp
+    sparse_tensor_value_builder.cpp
 )

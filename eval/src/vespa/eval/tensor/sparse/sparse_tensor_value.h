@@ -31,19 +31,15 @@ struct SparseTensorValueIndex : public vespalib::eval::Value::Index
 template<typename T>
 class SparseTensorValue : public vespalib::eval::Value
 {
-public:
-    static constexpr size_t STASH_CHUNK_SIZE = 16384u;
-
 private:
     eval::ValueType _type;
     SparseTensorValueIndex _index;
     ConstArrayRef<T> _cells;
     Stash _stash;
-
 public:
     SparseTensorValue(const eval::ValueType &type_in, const SparseTensorValueIndex &index_in, ConstArrayRef<T> cells_in);
 
-    SparseTensorValue(eval::ValueType &&type_in, const SparseTensorValueIndex &&index_in, ConstArrayRef<T> &&cells_in, Stash &&stash_in);
+    SparseTensorValue(eval::ValueType &&type_in, SparseTensorValueIndex &&index_in, ConstArrayRef<T> &&cells_in, Stash &&stash_in);
 
     ~SparseTensorValue() override;
 
