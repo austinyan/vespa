@@ -1,20 +1,21 @@
 // Copyright Verizon Media. Licensed under the terms of the Apache 2.0 license. See LICENSE in the project root.
 
 #include "sparse_tensor_value.h"
+#include "sparse_tensor_address_builder.h"
 #include "sparse_tensor_address_decoder.h"
 
 #include <vespa/vespalib/stllike/hash_map.hpp>
 #include <vespa/vespalib/stllike/hash_map_equal.hpp>
-//#include <vespa/vespalib/util/array_equal.hpp>
 
 #include <vespa/log/log.h>
 LOG_SETUP(".eval.tensor.sparse.sparse_tensor_value");
 
 namespace vespalib::tensor {
 
-namespace {
-
 using SubspaceMap = SparseTensorValueIndex::SubspaceMap;
+using View = vespalib::eval::Value::Index::View;
+
+namespace {
 
 void copyMap(SubspaceMap &map, const SubspaceMap &map_in, Stash &stash) {
     // copy the exact hashtable structure:
@@ -40,7 +41,9 @@ size_t needed_memory_for(const SubspaceMap &map, ConstArrayRef<T> cells) {
 
 } // namespace <unnamed>
 
-class SparseTensorValueView : public vespalib::eval::Value::Index::View
+//-----------------------------------------------------------------------------
+
+class SparseTensorValueView : public View
 {
 private:
     const SubspaceMap &map;
@@ -110,7 +113,96 @@ SparseTensorValueView::next_result(const std::vector<vespalib::stringref*> &addr
     return false;
 }
 
-SparseTensorValueIndex::SparseTensorValueIndex() : map() {}
+//-----------------------------------------------------------------------------
+
+class SparseTensorValueLookup : public View
+{
+private:
+    const SubspaceMap &map;
+    SubspaceMap::const_iterator iter;
+public:
+    SparseTensorValueLookup(const SubspaceMap & map_in) : map(map_in), iter(map.end()) {}
+    ~SparseTensorValueLookup();
+    void lookup(const std::vector<const vespalib::stringref*> &addr) override;
+    bool next_result(const std::vector<vespalib::stringref*> &addr_out, size_t &idx_out) override;
+};
+
+SparseTensorValueLookup::~SparseTensorValueLookup() = default;
+
+void
+SparseTensorValueLookup::lookup(const std::vector<const vespalib::stringref*> &addr)
+{
+    if (addr.size() == 1) {
+        auto ref = SparseTensorAddressRef(addr[0]->data(), addr[0]->size() + 1);
+        iter = map.find(ref);
+        return;
+    }
+    SparseTensorAddressBuilder builder;
+    for (const auto & label : addr) {
+        builder.add(*label);
+    }
+    auto ref = builder.getAddressRef();
+    iter = map.find(ref);
+}
+
+bool
+SparseTensorValueLookup::next_result(const std::vector<vespalib::stringref*> &, size_t &idx_out)
+{
+    if (iter != map.end()) {
+        idx_out = iter->second;
+        iter = map.end();
+        return true;
+    }
+    return false;
+}
+
+//-----------------------------------------------------------------------------
+
+class SparseTensorValueAllMappings : public View
+{
+private:
+    const SubspaceMap &map;
+    SubspaceMap::const_iterator iter;
+public:
+    SparseTensorValueAllMappings(const SubspaceMap & map_in) : map(map_in), iter(map.end()) {}
+    ~SparseTensorValueAllMappings();
+    void lookup(const std::vector<const vespalib::stringref*> &addr) override;
+    bool next_result(const std::vector<vespalib::stringref*> &addr_out, size_t &idx_out) override;
+};
+
+SparseTensorValueAllMappings::~SparseTensorValueAllMappings() = default;
+
+void
+SparseTensorValueAllMappings::lookup(const std::vector<const vespalib::stringref*> &)
+{
+    iter = map.begin();
+}
+
+bool
+SparseTensorValueAllMappings::next_result(const std::vector<vespalib::stringref*> &addr_out, size_t &idx_out)
+{
+    if (iter != map.end()) {
+        const auto & ref = iter->first;
+        idx_out = iter->second;
+        ++iter;
+        if (addr_out.size() == 1) {
+            *addr_out[0] = vespalib::stringref((const char *)ref.start(), ref.size()-1);
+        } else {
+            SparseTensorAddressDecoder decoder(ref);
+            for (const auto ptr : addr_out) {
+                const auto label = decoder.decodeLabel();
+                *ptr = label;
+            }
+        }
+        return true;
+    }
+    return false;
+}
+
+//-----------------------------------------------------------------------------
+
+SparseTensorValueIndex::SparseTensorValueIndex(size_t num_mapped_in)
+    : map(), num_mapped_dims(num_mapped_in) {}
 
 SparseTensorValueIndex::~SparseTensorValueIndex() = default;
 
@@ -118,16 +210,24 @@ size_t SparseTensorValueIndex::size() const {
     return map.size();
 }
 
-std::unique_ptr<vespalib::eval::Value::Index::View>
+std::unique_ptr<View>
 SparseTensorValueIndex::create_view(const std::vector<size_t> &dims) const
 {
+    if (dims.size() == num_mapped_dims) {
+        return std::make_unique<SparseTensorValueLookup>(map);
+    }
+    if (dims.size() == 0) {
+        return std::make_unique<SparseTensorValueAllMappings>(map);
+    }
     return std::make_unique<SparseTensorValueView>(map, dims);
 }
+
+//-----------------------------------------------------------------------------
 
 template<typename T>
 SparseTensorValue<T>::SparseTensorValue(const eval::ValueType &type_in, const SparseTensorValueIndex &index_in, ConstArrayRef<T> cells_in)
     : _type(type_in),
-      _index(),
+      _index(index_in.num_mapped_dims),
       _cells(),
       _stash(needed_memory_for(index_in.map, cells_in))
 {
@@ -148,6 +248,8 @@ template<typename T> SparseTensorValue<T>::~SparseTensorValue() = default;
 
 template class SparseTensorValue<float>;
 template class SparseTensorValue<double>;
+
+//-----------------------------------------------------------------------------
 
 } // namespace
 
