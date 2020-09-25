@@ -132,11 +132,6 @@ SparseTensorValueLookup::~SparseTensorValueLookup() = default;
 void
 SparseTensorValueLookup::lookup(const std::vector<const vespalib::stringref*> &addr)
 {
-    if (addr.size() == 1) {
-        auto ref = SparseTensorAddressRef(addr[0]->data(), addr[0]->size() + 1);
-        iter = map.find(ref);
-        return;
-    }
     SparseTensorAddressBuilder builder;
     for (const auto & label : addr) {
         builder.add(*label);
@@ -185,14 +180,10 @@ SparseTensorValueAllMappings::next_result(const std::vector<vespalib::stringref*
         const auto & ref = iter->first;
         idx_out = iter->second;
         ++iter;
-        if (addr_out.size() == 1) {
-            *addr_out[0] = vespalib::stringref((const char *)ref.start(), ref.size()-1);
-        } else {
-            SparseTensorAddressDecoder decoder(ref);
-            for (const auto ptr : addr_out) {
-                const auto label = decoder.decodeLabel();
-                *ptr = label;
-            }
+        SparseTensorAddressDecoder decoder(ref);
+        for (const auto ptr : addr_out) {
+            const auto label = decoder.decodeLabel();
+            *ptr = label;
         }
         return true;
     }
