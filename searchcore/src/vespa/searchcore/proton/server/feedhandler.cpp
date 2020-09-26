@@ -516,13 +516,16 @@ void FeedHandler::enqueCommitTask() {
 
 void
 FeedHandler::initiateCommit() {
-    auto commitResult = _tlsWriter->startCommit(std::make_shared<OnCommitDone>(
+    auto onCommitDoneContext = std::make_shared<OnCommitDone>(
             _writeService.master(),
             makeLambdaTask([this, numPendingAtStart=_numOperationsPendingCommit]() {
                 onCommitDone(numPendingAtStart);
-            })));
+            }));
+    auto commitResult = _tlsWriter->startCommit(onCommitDoneContext);
     if (_activeFeedView) {
-        _activeFeedView->forceCommit(_serialNum, std::make_shared<KeepAlive<CommitResult>>(std::move(commitResult)));
+        using KeepAlivePair = KeepAlive<std::pair<CommitResult, DoneCallback>>;
+        auto pair = std::make_pair(std::move(commitResult), std::move(onCommitDoneContext));
+        _activeFeedView->forceCommit(_serialNum, std::make_shared<KeepAlivePair>(std::move(pair)));
     }
 }
 
